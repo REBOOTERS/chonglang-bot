@@ -1,0 +1,13 @@
+# ugc-publisher skill 运行时数据（含明文密码，勿提交）
+.ugc-publisher/*.json
+.ugc-publisher/downloads/
+.ugc-publisher/captcha*.png
+
+# Playwright MCP 产物
+.playwright-mcp/
+
+# 录屏产物（脚本本身保留）
+recordings/*.mp4
+recordings/*.webm
+recordings/.rec.pid
+recordings/.rec.out
