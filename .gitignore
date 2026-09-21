@@ -1,7 +1,7 @@
 # ugc-publisher skill 运行时数据（含明文密码，勿提交）
 .ugc-publisher/*.json
 .ugc-publisher/downloads/
-.ugc-publisher/captcha*.png
+.ugc-publisher/*.png
 
 # Playwright MCP 产物
 .playwright-mcp/

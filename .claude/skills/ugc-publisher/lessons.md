@@ -107,3 +107,39 @@
   - 双屏时第二参数指定屏幕索引；avfoundation 列表里屏幕是 "Capture screen 0/1"。
 
 - **执行结果留痕**：自动注册账号 `ugc_7k2m9x`（昵称"冲浪选手7K2M"），已存 `.ugc-publisher/accounts.json`（chmod 600，default）。帖子正文 284 字符/248 汉字，1 张 webp，`wb_sim_posts` 长度 3。
+
+## 2026-09-19 Case 03 双图发布 + 流程性能优化
+
+- **跨浏览器配置的 localStorage 是空的：凭据在库里 ≠ 页面里有这个账号。**
+  - 现象：Case 03 新起 Playwright 浏览器后 `wb_sim_users` 为 `{}`，仍按旧决策先登录 → "用户名或密码错误"，再切注册重填昵称，账号环节白跑约 4 次工具往返。
+  - 解决：登录失败先区分"页面无此用户（重注册同一身份）"与"密码真不符（报告）"；该判定已内置进 autopost.js，accounts.md 决策表同步修订。
+
+- **慢的根因是工具往返次数，不是页面速度：一次发帖 20+ 次 MCP 调用，每次 click/type 还回传整页快照。**
+  - 优化（已落地）：新增 `scripts/autopost.js` 快速通道——
+    1. 一次 `browser_run_code_unsafe`（filename 加载脚本，入参走 `.ugc-publisher/next-post.json`）完成
+       导航→会话检测→登录/静默重注册→`fill()` 文案→单个 filechooser `setFiles` 批量传图→发布→
+       ①②④验证码全自动处置→以 feed 首帖正文前缀+媒体数判定成功，返回值自带验证信息；
+    2. 仅 ③ 字符码中断返回 `need:'textCaptcha'`，识图后写 `step:'solveText'` 再跑一次；
+    3. dwebp/analyze 多图并行，且与服务器探活/页面打开并行；
+    4. 服务器先 `curl` 探活复用，浏览器+http.server 默认跨任务保活，不再每次收尾重启；
+    5. 去掉固定 700–800ms 等待，一律 `waitForSelector/waitForFunction` 事件驱动；发布后轮询 250ms。
+  - 实测往返：有 ①②④验证码的帖子从 ~15 次降到 2 次（publish + 可能的一次 solveText）。
+  - 验证手段：`step:'dryRun'` 只跑到预览数量校验然后 reload 丢弃，不产生帖子。
+  - **坑：browser_run_code_unsafe 的 filename 文件必须整体是一个 `async (page) => { ... }` 表达式**
+    （与内联 code 同格式，末尾不要加分号），顶层直接写 `const` 会报
+    `SyntaxError: Unexpected token 'const'`，末尾分号报 `Unexpected token ';'`。
+  - **沙箱里没有任何 Node 全局**（`require/process/module/global` 均 undefined，`await import('node:fs')`
+    报 "A dynamic import callback was not specified"）。配置改走 `page.request.get` 经本机
+    `http://localhost:8765/.ugc-publisher/next-post.json`（python http.server 会服务点目录，curl 实测 200）。
+    文件路径通过 `page.setInputFiles(selector, paths)` 直接灌进隐藏 input（不经文件读取）。
+
+- **filechooser 路线在 MCP 下走不通，且 API 名不是 setFiles。**
+  - 点 `#imgBtn` → MCP 层拦截 filechooser、挂起脚本弹原生文件框；`chooser.setFiles` 等不到。
+  - 该定制版 Playwright 的方法名是 **`page.setInputFiles('#imgInput', paths)` / Locator `setInputFiles`**
+    （没有 Locator.setFiles，报 "is not a function"）。直接灌隐藏 input 不触发 chooser，干净可靠。
+  - **预览残留坑**：中断的运行/手动上传会在 `#mediaPreview` 留下旧媒体，新上传是追加不是替换，
+    数量校验会超时。脚本已在上传前逐个点 `.rm` 清空——注意 `.rm` 点击会 `renderMediaPreview()`
+    整体重写 innerHTML，批量 forEach 点击只有第一个生效，必须点一个等数量减一再点下一个。
+  - **solveText 配置没有 text 字段**：成功判定不能读 cfg.text；发布时把 `{head,n}` 存到
+    `window.__lastPost`，判定与 solveText 重跑都从 window 取。2026-09-20 实测：回填 SDWQ 后
+    正是这行报错，但验证码实际正确、帖子已成功发布——排查此类"脚本报错"先查 wb_sim_posts/feed。

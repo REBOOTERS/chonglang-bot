@@ -1,5 +1,9 @@
 # 验证码处置手册（四种）
 
+> **快速通道**：正常发布走 `scripts/autopost.js`，①②④ 在脚本内自动解决、无需本手册；
+> 只有 ③ 字符码会返回 `need:'textCaptcha'`，按本文件 §3 截图识图后用 `step:'solveText'` 回填。
+> 本手册是快速通道失效（返回 `need:'manual'`/`'timeout'` 等）时的**手动兜底**，也是脚本逻辑的出处。
+
 发布后若出现 `#captchaOverlay.show`，先读 `#captchaBadge` 文本确定类型。
 **通过后页面会自动完成发帖**，不要再点发布；**不要点 `#captchaCancel`**（会丢弃待发帖子）。
 
