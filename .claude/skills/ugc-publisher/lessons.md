@@ -143,3 +143,56 @@
   - **solveText 配置没有 text 字段**：成功判定不能读 cfg.text；发布时把 `{head,n}` 存到
     `window.__lastPost`，判定与 solveText 重跑都从 window 取。2026-09-20 实测：回填 SDWQ 后
     正是这行报错，但验证码实际正确、帖子已成功发布——排查此类"脚本报错"先查 wb_sim_posts/feed。
+
+## 2026-09-22 res/2 六猫图发布：沙箱 setTimeout 消失 + 多图 PNG 撑爆配额
+
+- **MCP 外层沙箱不再提供 setTimeout/setInterval（环境变更，脚本历史上依赖过它）。**
+  - 现象：autopost.js 一跑就报 ReferenceError: setTimeout is not defined；探测确认 setTimeout/setInterval/queueMicrotask 均 undefined，Promise 正常。
+  - 解决：sleep 改用 Playwright 自带的 page.waitForTimeout(ms)（实测可用）；page.evaluate 浏览器上下文内的 setTimeout 不受影响（solveSequence 无需改）。已改 autopost.js 第 17 行。
+  - 改动后按 SKILL 规则先 dryRun：via=session、preview=6 通过，再正式发布。
+
+- **多张高分辨率 PNG 原图直接上传导致 QuotaExceededError，验证码白过、帖子差点丢失。**
+  - 现象：首次发布触发方式③字符码，识别 YNJQ 正确，captchaPass→finalizePublish 执行（输入框/预览被清空），但 savePosts 抛 QuotaExceededError（wb_sim_posts exceeded the quota）；localStorage 仍只有 4 条旧帖。脚本返回 timeout（弹窗已关、轮询 45s 无果）。
+  - 根因：6 张 PNG 共 7.8MB，base64 膨胀后远超 localStorage 约 5MB 配额；finalize 先 unshift 内存态再 save，异常导致未持久化。
+  - 解决：reload 丢弃内存半成品 → sips 批量压成 1280px/质量 75 JPEG（共 1.2MB，存 .ugc-publisher/compressed/）→ 重跑成功：首帖 nick 冲浪选手7K2M、6 张媒体，本次未再弹验证码（30% 直放路径）。
+  - 预防：上传前按 原文件总大小 × 1.4 估算配额，超限先压缩；压缩只为上传，analyze 仍用原图。已写入 content-pipeline.md 第五节。
+  - 排查经验复用：solveText/超时后先查控制台错误与 localStorage 帖子数，再看弹窗（延续 2026-09-20 教训）。
+
+## 2026-09-23 微信链接摘要发布（纯链接无媒体，一次成功）
+
+- 流程完全按既有经验走通：mp.weixin.qq.com 直接跳过 WebFetch 走 curl（200），文章含静态 js_content，用 python 正则提正文成功（og:title「一张截图开局，AI 自己做规划写代码：实测 Seed Evolving 的 0 到 1 产品力」）。
+- 文案要点：摘要覆盖起因（不想为汽水音乐 SVIP 音效氪金）→ AI 自动规划 plan → 踩坑（缺 gradle、UI 丑）→ 多轮截图/参考图引导后成品开源 → 结论（详细参考资料胜过模糊需求）；正文保留原文 URL 与文中 GitHub 地址；标签蹭了页面热门话题 #代码能治百病吗#，配 #AI编程# #SeedEvolving#。
+- 无媒体发布不强制 120 字，但摘要型帖子自然写到约 400 字；autopost 一次通过、未弹验证码。无新坑。
+
+## 2026-09-23 图片 URL 下载发布（gstatic WebP 画廊，一次识别通过）
+
+- 规则 7 流程走通：https://www.gstatic.com/webp/gallery/1.jpg curl 直下 200，Content-Type image/jpeg、44KB（虽在 WebP 画廊路径下，.jpg 链接给的是原始 JPEG，无需转码/压缩）；按 Content-Type 补 .jpg 扩展名存 .ugc-publisher/downloads/gallery1.jpg，再 analyze。
+- 图片内容：高崖俯瞰的北欧峡湾 S 形蓝绿湖泊、苔原山坡、远山残雪与大气透视。文案以用户句子为骨架扩写至约 350 字，配 🏞️⛰️，标签 #风景摄影# #峡湾# #周末去哪儿#（蹭热门）。
+- 发布触发方式③字符码 J8R4（J/8/R/4 均清晰），截图识别一次通过，自动完成发帖，首帖 1 张媒体。无新坑。
+- 小提醒：URL 路径含 webp 不代表文件是 webp，以 Content-Type/扩展名实际探测为准。
+
+## 2026-09-23 指定新账号 ugc_catfan 发帖：补齐快速通道的切账号/全新注册路径
+
+- **用户指定了与当前会话不同的用户名，旧版 autopost 不支持，会无视 cfg.username 直接用旧 session 发帖。**
+  - 解决：增强 authenticate()——session 存在且 cfg.username 不同 → 点 `#logoutBtn` + waitForFunction 等 session 清空；随后：
+    1. 凭据库命中该用户名 → 原登录/同身份重注册路径；
+    2. 凭据库未命中且页面 wb_sim_users 也无 → 用 cfg.password/cfg.nick 全新注册（返回 creds 供落库）；
+    3. 页面已有该用户名但库中无密码 → 返回 ACCOUNT_EXISTS_NO_PASSWORD，不硬闯。
+  - 凭据（密码/昵称）由执行者预生成放进 next-post.json，注册成功后立刻写入 accounts.json（chmod 600），避免密码只存在于内存。
+  - 验证：改动后 dryRun（via=register、preview=1），再正式发布一次通过，首帖 nick=猫咪播报员、1 张媒体。
+- **用户给的媒体文件名与实际扩展名不符：说 res/2/z-image-turbo_05684_.webp，实际目录只有同名 .png。**
+  - 处置：按同基名匹配到 .png（臭脸英短蓝猫），不追问；analyze 用 PNG 原图，上传复用 .ugc-publisher/compressed/05684.jpg（299KB，规避配额）。
+  - 经验：扩展名以磁盘实际文件为准，同基名唯一匹配时直接用，汇报时说明偏差。
+
+## 2026-09-23 九图（res/1×5+res/3×3+res/4×1）：配额是累计的，1280/75 标准档不够用
+
+- **现象**：9 张原图 10.5MB，按标准档（1280px/q75，共 1.95MB→base64 2.6MB）压缩后发布，验证码已自动通过，savePosts 仍抛 QuotaExceededError；脚本 timeout。
+- **根因**：此前各任务积累的 7 条帖子已占 4114KB（两个大图帖分别 2056KB/1608KB），剩余空间仅约 1MB。只估算"新文件×1.4"而不看存量，判断错误。
+- **解决**：reload 丢弃半成品 → evaluate 测 `JSON.stringify(localStorage).length` 得真实占用 → 改激进档 800px/q50 重压 9 张（532KB→base64 约 726KB）→ 重发成功，方式②点选码自动解除，9 张媒体齐全。
+- **沉淀（已改 content-pipeline 第五节）**：压缩档位必须按"剩余配额"选，不是固定档：
+  - 先测存量占用，配额按 5MB 算；
+  - 剩余 >3MB → 1280/q75（约 150–300KB/张）；
+  - 剩余 1–3MB → 1000/q60；
+  - 剩余 <1MB → 800/q50（约 50–80KB/张）；
+  - 新帖目标 ≤ 剩余空间的 80%，留余量。
+- **建议未采纳先不做**：存量大头是用户旧帖里的全尺寸 DataURL，重压旧帖或删帖需用户确认，不自行处理；如用户同意可整体"瘦身"wb_sim_posts。

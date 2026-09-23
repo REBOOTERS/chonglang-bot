@@ -72,7 +72,12 @@
 > 注意：登录态在 localStorage 里，Playwright 新开的浏览器上下文可能是空的，
 > 所以每次会话**先查 `wb_sim_session`**，没有就优先用凭据库 default 登录，而不是直接注册新号。
 >
-> **快速通道（autopost.js）一次往返内完成全部判定**：有 session 直用；无 session 则用凭据库
-> default（或指定 username）走登录；登录报"用户名或密码错误"时自动区分：
-> `wb_sim_users` 不含该用户 → 同身份静默重注册（复用库中密码/nick）；含该用户 → 失败返回。
+> **快速通道（autopost.js）一次往返内完成全部判定**：
+> - session 与指定 username 不同 → 自动点 `#logoutBtn` 退出；
+> - 有一致的 session → 直用；
+> - 无 session、凭据库命中 → 登录；登录报"用户名或密码错误"时自动区分：
+>   `wb_sim_users` 不含该用户 → 同身份静默重注册（复用库中密码/nick）；含该用户 → 失败返回；
+> - 无 session、凭据库未命中指定用户名且页面也无 → 用 cfg.password/cfg.nick 全新注册
+>   （执行者预生成凭据放入 next-post.json，注册返回后立即落库 accounts.json）；
+>   页面已有该用户名而库中无密码 → 返回 ACCOUNT_EXISTS_NO_PASSWORD。
 > 手动流程照此顺序执行，避免"明知用户不存在还先试一次登录"的无效往返。

@@ -56,7 +56,30 @@ curl -fsSL --max-time 60 -o .ugc-publisher/downloads/<名字> "<url>"
 单张图片分析失败：自己 Read 该图片（Read 工具可直接看图）再描述。
 全部分析手段都失败：如实在回复中说明，文案改为围绕用户给定文字与文件名，不虚构画面。
 
-## 五、文案创作规范
+## 五、上传前压缩（localStorage 配额硬约束，强制）
+
+页面把所有媒体以 DataURL 存进 localStorage（通常配额 ~5MB，**base64 还会再膨胀 ~33%**），
+存量帖子也占同一份配额。超限时 `savePosts` 抛 `QuotaExceededError`——
+注意此时验证码已通过、输入框已清空，只有内存里有帖子，**reload 即永久丢失**。
+2026-09-22 实测：6 张 PNG 原图 7.8MB → 超限；压成 1280px JPEG 后 1.2MB → 成功。
+
+**规则（配额是累计的，压缩档位按"剩余空间"选，不是固定档）：**
+1. 先在页面 evaluate 测真实占用：`JSON.stringify(localStorage).length`；
+   配额按 5MB（5,242,880 字节）算，`剩余 = 5MB − 已用`。
+   新帖（文件总大小 ×1.4 + 文案）目标 **≤ 剩余空间的 80%**，留安全余量。
+2. 按剩余空间选压缩档（sips 能编 JPEG，不能编 webp）：
+   - 剩余 >3MB → 标准档：`-Z 1280 -s formatOptions 75`（约 150–300KB/张）
+   - 剩余 1–3MB → 中配档：`-Z 1000 -s formatOptions 60`（约 90–160KB/张）
+   - 剩余 <1MB → 激进档：`-Z 800 -s formatOptions 50`（约 50–80KB/张）
+   压完先 `stat` 求和验证再上传；超限就降一档重压。
+3. 压缩仅为**上传用**：媒体理解（analyze_image）仍对原图进行，细节不丢；压缩产物放
+   `.ugc-publisher/compressed/`，next-post.json 指向压缩文件。
+4. 视频不能转码时（本机有 ffmpeg 可压则压：`ffmpeg -i in.mp4 -vcodec libx264 -crf 28 out.mp4`），
+   超预算先告知用户；发布后控制台出现 QuotaExceededError 要主动检查，
+   不能仅凭"验证码通过/弹窗关闭"汇报成功。
+5. 存量帖子的大尺寸 DataURL 是用户数据，**重压或删除旧帖必须先征得用户同意**，不自行处理。
+
+## 六、文案创作规范
 
 ### 硬要求
 1. **只要本次发布含图片或视频，最终文案 ≥120 个汉字**（不含 URL 与话题符号也要够数；写完自己数）。

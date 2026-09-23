@@ -72,6 +72,12 @@ description: 在本地 ugc-index.html 模拟微博社区页面中自动发布内
    - 用户给了 `text` 时，以其意图为骨架扩写，不歪曲原意；
    - 含链接时，把网页摘要自然融入文案，并在末尾保留原始 URL；
    - 上限 2000 字（textarea `maxlength=2000`），超出则压缩摘要部分。
+5. **上传前配额检查与压缩（强制）**：页面 localStorage 配额约 5MB，媒体转 base64 膨胀 ~33%，
+   且**配额是累计的**。先 evaluate `JSON.stringify(localStorage).length` 测已用空间，
+   再按剩余空间选 sips 压缩档（>3MB→1280/q75；1–3MB→1000/q60；<1MB→800/q50），
+   新帖目标 ≤剩余空间 80%，详见 content-pipeline.md 第五节；**analyze 仍用原图**。
+   发布后若控制台有 QuotaExceededError，属发布失败（验证码通过≠成功），降档重压后重发；
+   重压/删除旧帖必须先征得用户同意。
 
 ## 5–7. 快速通道（首选，一次工具往返完成发布）
 

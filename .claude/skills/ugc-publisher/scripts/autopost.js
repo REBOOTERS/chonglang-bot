@@ -5,6 +5,7 @@
 //   { "step": "publish",   "text": "文案", "images": ["/abs/a.webp"], "videos": [], "username": "可选" }
 //   { "step": "solveText", "code": "EFAT" }   // 字符验证码识图后回填
 //   { "step": "dryRun" }                       // 鉴权+填写+上传+预览校验，不发布（reload 丢弃草稿）
+// 全新注册用户（凭据库与页面均无 username）时另需 "password"（必填）/"nick"（缺省取 username）。
 async (page) => {
   const BASE = 'http://localhost:8765';
   const loadJson = async p => {
@@ -14,7 +15,8 @@ async (page) => {
   };
   const cfg = await loadJson('/.ugc-publisher/next-post.json');
   if (cfg.__http) return { ok: false, stage: 'config', err: 'next-post.json HTTP ' + cfg.__http };
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // 注意：MCP 外层沙箱已无 setTimeout/setInterval（2026-09-22 起实测），用 Playwright 自带等待。
+  const sleep = ms => page.waitForTimeout(ms);
 
   const st = () => page.evaluate(() => ({
     session: localStorage.getItem('wb_sim_session'),
@@ -25,15 +27,39 @@ async (page) => {
     badge: document.getElementById('captchaBadge').textContent,
   }));
 
-  // —— 鉴权：已有会话直用；否则 UI 登录；新浏览器配置（用户库空导致密码不符）时用同一身份静默重注册 ——
+  // —— 鉴权：会话直用；指定不同账号先退出；库中有→登录（页面缺用户则同身份重注册）；库中无→全新注册 ——
   async function authenticate() {
     let s = await st();
+    // 指定的账号与当前会话不同：先退出，再按未登录处理
+    if (s.session && cfg.username && s.session !== cfg.username) {
+      await page.locator('#logoutBtn').click();
+      await page.waitForFunction(() => !localStorage.getItem('wb_sim_session'), null, { timeout: 5000 });
+      s = await st();
+    }
     if (s.session) return { via: 'session' };
     const store = await loadJson('/.ugc-publisher/accounts.json');
     if (store.__http === 404) return { fail: 'NO_ACCOUNTS_FILE' };
     if (store.__http) return { fail: 'ACCOUNTS_HTTP', status: store.__http };
-    const a = store.accounts.find(x => x.username === (cfg.username || store.default));
-    if (!a) return { fail: 'NO_ACCOUNT' };
+    const wantUser = cfg.username || store.default;
+    const a = store.accounts.find(x => x.username === wantUser);
+
+    // 凭据库无此账号：页面里也没有 → 用该用户名全新注册（密码/昵称由 cfg.password/cfg.nick 提供）；
+    // 页面里已存在该用户名 → 我们没有密码，不能登录也不能重注册，返回让用户处理。
+    if (!a) {
+      if (s.users.includes(wantUser)) return { fail: 'ACCOUNT_EXISTS_NO_PASSWORD', username: wantUser };
+      if (!cfg.password) return { fail: 'NO_PASSWORD_FOR_NEW_ACCOUNT' };
+      const nick = cfg.nick || wantUser;
+      await page.locator('#openReg').click();
+      await page.waitForSelector('#authOverlay.show', { timeout: 3000 });
+      await page.locator('#regNick').fill(nick);
+      await page.locator('#authUser').fill(wantUser);
+      await page.locator('#authPass').fill(cfg.password);
+      await page.locator('#authSubmit').click();
+      await sleep(400);
+      s = await st();
+      if (s.session) return { via: 'register', creds: { username: wantUser, password: cfg.password, nick } };
+      return { fail: 'REGISTER_FAILED', err: s.authErr };
+    }
 
     await page.locator('#openLogin').click();
     await page.waitForSelector('#authOverlay.show', { timeout: 3000 });
