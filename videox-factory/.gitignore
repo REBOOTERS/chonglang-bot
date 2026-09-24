@@ -1,0 +1,20 @@
+# Python venv（跨设备用 uv 重建，见 CLAUDE.md，勿提交）
+.venv/
+__pycache__/
+
+# 本机权限配置（含绝对路径，每台设备自己生成）
+.claude/settings.local.json
+
+# 视频文件一律不入库（源素材 lesson.mp4、example/、output/、analysis/ 产物）
+*.mp4
+*.mkv
+*.mov
+*.webm
+*.avi
+*.wmv
+*.flv
+*.m4v
+*.ts
+
+# analysis/ 全部为调试中间产物（抽帧、mask 诊断图、contact sheet），可随时重跑再生
+analysis/

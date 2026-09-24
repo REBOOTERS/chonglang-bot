@@ -4,6 +4,9 @@
 # Playwright MCP 产物
 .playwright-mcp/
 
+# Python 字节码缓存
+__pycache__/
+
 # 录屏产物（脚本本身保留）
 recordings/*.mp4
 recordings/*.webm
